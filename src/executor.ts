@@ -135,6 +135,7 @@ export class PolyglotExecutor {
       perl: "pl",
       r: "R",
       elixir: "exs",
+      csharp: "csx",
     };
 
     // Go needs a main package wrapper if not present
@@ -151,6 +152,11 @@ export class PolyglotExecutor {
     if (language === "elixir" && existsSync(join(this.#projectRoot, "mix.exs"))) {
       const escaped = JSON.stringify(join(this.#projectRoot, "_build/dev/lib"));
       code = `Path.wildcard(Path.join(${escaped}, "*/ebin"))\n|> Enum.each(&Code.prepend_path/1)\n\n${code}`;
+    }
+
+    // C#: wrap in minimal script template if no using statements or top-level code markers
+    if (language === "csharp" && !code.includes("using ") && !code.includes("class ")) {
+      code = `using System;\n\n${code}`;
     }
 
     const fp = join(tmpDir, `script.${extMap[language]}`);
@@ -491,6 +497,8 @@ export class PolyglotExecutor {
         return `FILE_CONTENT_PATH <- ${escaped}\nfile_path <- FILE_CONTENT_PATH\nFILE_CONTENT <- readLines(FILE_CONTENT_PATH, warn=FALSE, encoding="UTF-8")\nFILE_CONTENT <- paste(FILE_CONTENT, collapse="\\n")\n${code}`;
       case "elixir":
         return `file_content_path = ${escaped}\nfile_path = file_content_path\nfile_content = File.read!(file_content_path)\n${code}`;
+      case "csharp":
+        return `using System;\nusing System.IO;\n\nvar FILE_CONTENT_PATH = ${escaped};\nvar file_path = FILE_CONTENT_PATH;\nvar FILE_CONTENT = File.ReadAllText(FILE_CONTENT_PATH);\n${code}`;
     }
   }
 }

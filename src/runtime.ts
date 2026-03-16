@@ -12,7 +12,8 @@ export type Language =
   | "php"
   | "perl"
   | "r"
-  | "elixir";
+  | "elixir"
+  | "csharp";
 
 export interface RuntimeInfo {
   command: string;
@@ -33,6 +34,7 @@ export interface RuntimeMap {
   perl: string | null;
   r: string | null;
   elixir: string | null;
+  csharp: string | null;
 }
 
 const isWindows = process.platform === "win32";
@@ -124,6 +126,7 @@ export function detectRuntimes(): RuntimeMap {
         ? "r"
         : null,
     elixir: commandExists("elixir") ? "elixir" : null,
+    csharp: commandExists("dotnet") ? "dotnet" : null,
   };
 }
 
@@ -186,6 +189,10 @@ export function getRuntimeSummary(runtimes: RuntimeMap): string {
     lines.push(
       `  Elixir:     ${runtimes.elixir} (${getVersion(runtimes.elixir)})`,
     );
+  if (runtimes.csharp)
+    lines.push(
+      `  C#:         ${runtimes.csharp} (${getVersion(runtimes.csharp)})`,
+    );
 
   if (!bunPreferred) {
     lines.push("");
@@ -208,6 +215,7 @@ export function getAvailableLanguages(runtimes: RuntimeMap): Language[] {
   if (runtimes.perl) langs.push("perl");
   if (runtimes.r) langs.push("r");
   if (runtimes.elixir) langs.push("elixir");
+  if (runtimes.csharp) langs.push("csharp");
   return langs;
 }
 
@@ -288,5 +296,13 @@ export function buildCommand(
         throw new Error( "Elixir not available. Install elixir.");
       }
       return ["elixir", filePath];
+
+    case "csharp":
+      if (!runtimes.csharp) {
+        throw new Error(
+          "C# not available. Install .NET SDK from https://dotnet.microsoft.com",
+        );
+      }
+      return ["dotnet", "script", filePath];
   }
 }
