@@ -489,6 +489,11 @@ const SHELL_ESCAPE_PATTERNS: Record<string, RegExp[]> = {
   rust: [
     /Command::new\(\s*(['"`])(.*?)\1/g,
   ],
+  csharp: [
+    /Process\.Start\(\s*(['"`])(.*?)\1/g,
+    /new\s+Process\s*\(\s*\)\s*\{\s*StartInfo\s*=/g,
+    /new\s+ProcessStartInfo\(\s*(['"`])(.*?)\1/g,
+  ],
 };
 
 /**

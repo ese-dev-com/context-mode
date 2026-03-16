@@ -1,5 +1,5 @@
 import { spawn, execSync } from "node:child_process";
-import { mkdtempSync, writeFileSync, rmSync, existsSync } from "node:fs";
+import { mkdtempSync, writeFileSync, rmSync, existsSync, readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import {
@@ -89,6 +89,11 @@ export class PolyglotExecutor {
         return await this.#compileAndRun(filePath, tmpDir, timeout);
       }
 
+      // C#: compile then run
+      if (cmd[0] === "__csharp_compile_run__") {
+        return await this.#compileAndRunCSharp(filePath, tmpDir, timeout);
+      }
+
       // Shell commands run in the project directory so git, relative paths,
       // and other project-aware tools work naturally. Non-shell languages
       // run in the temp directory where their script file is written.
@@ -135,6 +140,7 @@ export class PolyglotExecutor {
       perl: "pl",
       r: "R",
       elixir: "exs",
+      csharp: "cs",
     };
 
     // Go needs a main package wrapper if not present
@@ -151,6 +157,11 @@ export class PolyglotExecutor {
     if (language === "elixir" && existsSync(join(this.#projectRoot, "mix.exs"))) {
       const escaped = JSON.stringify(join(this.#projectRoot, "_build/dev/lib"));
       code = `Path.wildcard(Path.join(${escaped}, "*/ebin"))\n|> Enum.each(&Code.prepend_path/1)\n\n${code}`;
+    }
+
+    // C#: wrap in minimal script template if no using statements or top-level code markers
+    if (language === "csharp" && !code.includes("class Program") && !code.includes("static void Main")) {
+      code = `using System;\nusing System.IO;\nusing System.Linq;\nusing System.Collections.Generic;\n\n${code}`;
     }
 
     const fp = join(tmpDir, `script.${extMap[language]}`);
@@ -190,6 +201,68 @@ export class PolyglotExecutor {
 
     // Run
     return this.#spawn([binPath], cwd, timeout);
+  }
+
+  async #compileAndRunCSharp(
+    srcPath: string,
+    cwd: string,
+    timeout: number,
+  ): Promise<ExecResult> {
+    // Create a minimal .csproj file for the script
+    const projName = "Script";
+    const csprojPath = join(cwd, `${projName}.csproj`);
+    const csprojContent = `<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>disable</Nullable>
+  </PropertyGroup>
+</Project>`;
+
+    try {
+      writeFileSync(csprojPath, csprojContent, "utf-8");
+
+      // Rename script to Program.cs (required by dotnet)
+      const programPath = join(cwd, "Program.cs");
+      const scriptContent = readFileSync(srcPath, "utf-8");
+      writeFileSync(programPath, scriptContent, "utf-8");
+
+      // Remove the original script file to avoid conflicts
+      rmSync(srcPath, { force: true });
+
+      // Build the project
+      const buildResult = execSync(`dotnet build`, {
+        cwd,
+        timeout: Math.min(timeout, 30_000),
+        encoding: "utf-8",
+        stdio: ["pipe", "pipe", "pipe"],
+      });
+
+      // Find the built executable/assembly
+      const dllPath = join(cwd, "bin", "Debug", "net8.0", `${projName}.dll`);
+      const binSuffix = isWin ? ".exe" : "";
+      const exePath = join(cwd, "bin", "Debug", "net8.0", `${projName}${binSuffix}`);
+
+      // Run the assembly - use dotnet to run the dll (cross-platform), or exe on Windows
+      const runCmd = existsSync(exePath) ? [exePath] : ["dotnet", dllPath];
+      return this.#spawn(runCmd, cwd, timeout);
+    } catch (err: unknown) {
+      const stderr = err instanceof Error && (err as any).stderr
+        ? (err as any).stderr
+        : err instanceof Error
+          ? err.message
+          : String(err);
+      const stdout = err instanceof Error && (err as any).stdout
+        ? (err as any).stdout
+        : "";
+      return {
+        stdout,
+        stderr: `C# compilation failed:\n${stderr}`,
+        exitCode: 1,
+        timedOut: false,
+      };
+    }
   }
 
   async #spawn(
@@ -491,6 +564,8 @@ export class PolyglotExecutor {
         return `FILE_CONTENT_PATH <- ${escaped}\nfile_path <- FILE_CONTENT_PATH\nFILE_CONTENT <- readLines(FILE_CONTENT_PATH, warn=FALSE, encoding="UTF-8")\nFILE_CONTENT <- paste(FILE_CONTENT, collapse="\\n")\n${code}`;
       case "elixir":
         return `file_content_path = ${escaped}\nfile_path = file_content_path\nfile_content = File.read!(file_content_path)\n${code}`;
+      case "csharp":
+        return `using System;\nusing System.IO;\n\nvar FILE_CONTENT_PATH = ${escaped};\nvar file_path = FILE_CONTENT_PATH;\nvar FILE_CONTENT = File.ReadAllText(FILE_CONTENT_PATH);\n${code}`;
     }
   }
 }
