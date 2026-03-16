@@ -303,6 +303,7 @@ export function buildCommand(
           "C# not available. Install .NET SDK from https://dotnet.microsoft.com",
         );
       }
-      return ["dotnet", "script", filePath];
+      // C# needs compile + run — handled specially in executor
+      return ["__csharp_compile_run__", filePath];
   }
 }
