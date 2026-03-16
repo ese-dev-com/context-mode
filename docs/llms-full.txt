@@ -41,7 +41,7 @@ execute({
 
 **Parameters:**
 
-- `language` (required): One of 11 supported languages. Determines which runtime executes the code.
+- `language` (required): One of 12 supported languages. Determines which runtime executes the code.
 - `code` (required): Source code to execute. For JS/TS, use `console.log()` to output. For Python, use `print()`. For Shell, use `echo`. Each language has its idiomatic output function.
 - `timeout` (optional): Maximum execution time in milliseconds. Default 30000. Process is killed via SIGTERM on timeout; partial stdout is returned.
 - `intent` (optional): Natural language description of what you are looking for. When provided and output exceeds 5000 bytes (~80-100 lines), the output is auto-indexed into FTS5 and only matching sections are returned via BM25 search instead of raw output.
@@ -93,6 +93,7 @@ execute_file({
 | Perl | `$FILE_CONTENT` | Filehandle with `<:encoding(UTF-8)` and `local $/` slurp |
 | R | `FILE_CONTENT` | `readLines(path, warn=FALSE, encoding="UTF-8")` joined with newlines |
 | Elixir | `file_content` | `File.read!(path)` |
+| C# | `FILE_CONTENT` | `File.ReadAllText(path)` |
 
 The `FILE_CONTENT_PATH` variable (or language-appropriate equivalent) is also set to the absolute file path.
 
@@ -394,6 +395,7 @@ score = IDF + lengthBonus + identifierBonus
 | Perl | perl | -- | -- |
 | R | Rscript | r | -- |
 | Elixir | elixir | -- | -- |
+| C# | dotnet (compile + run) | -- | -- |
 
 Runtime detection uses `commandExists()` which checks `which` (Unix) or `where` (Windows) for each runtime. Bun is preferred over Node when available.
 
@@ -402,7 +404,9 @@ Runtime detection uses `commandExists()` which checks `which` (Unix) or `where` 
 - **Go:** If code does not contain `package `, wraps in `package main` with `import "fmt"` and `func main() { ... }`.
 - **PHP:** If code does not start with `<?`, prepends `<?php\n`.
 - **Elixir:** If a `mix.exs` exists in the project root, prepends `Path.wildcard` to add compiled BEAM paths (`*/ebin`) to the code path.
+- **C#:** If code does not contain `class Program` or `static void Main`, prepends common using statements (`System`, `System.IO`, `System.Linq`, `System.Collections.Generic`).
 - **Rust:** Source compiled with `rustc` to a temp binary, then executed. Not interpreted.
+- **C#:** Source compiled with `dotnet build` using a minimal .csproj project file, then executed. The .dll is run via `dotnet` on Linux/macOS, or .exe directly on Windows.
 
 ### Output Truncation
 
@@ -534,6 +538,11 @@ const SHELL_ESCAPE_PATTERNS: Record<string, RegExp[]> = {
   ],
   rust: [
     /Command::new\(\s*(['"`])(.*?)\1/g,
+  ],
+  csharp: [
+    /Process\.Start\(\s*(['"`])(.*?)\1/g,
+    /new\s+Process\s*\(\s*\)\s*\{\s*StartInfo\s*=/g,
+    /new\s+ProcessStartInfo\(\s*(['"`])(.*?)\1/g,
   ],
 };
 ```
@@ -780,7 +789,7 @@ Self-update from GitHub:
 - **Settings merge order:** project-local > project-shared > global. All three are checked.
 - **Glob matching:** Case-insensitive on Windows (`process.platform === "win32"`), case-sensitive elsewhere.
 - **Path normalization:** Forward slashes and backslashes normalized for cross-platform matching.
-- **Shell escape detection:** Only scans languages in the `SHELL_ESCAPE_PATTERNS` map (python, javascript, typescript, ruby, go, php, rust). Other languages pass through without shell-escape checking.
+- **Shell escape detection:** Only scans languages in the `SHELL_ESCAPE_PATTERNS` map (python, javascript, typescript, ruby, go, php, rust, csharp). Other languages pass through without shell-escape checking.
 
 ## Intent-Driven Search Flow
 
